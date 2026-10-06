@@ -43,7 +43,7 @@ func testServer(t *testing.T) *Server {
 	drainer := route.NewDrainer(0)
 	activator := route.NewActivator(registry)
 	receipts := landing.NewReceiptRegistry()
-	permitService := repair.NewPermitService(feed.NewIsolationService(), receipts, ids, clock.Now)
+	permitService := repair.NewPermitService(feed.NewIsolationService(), receipts, ids, clock.Now, repair.DefaultPermitTTL, repair.PermitReminderWindow)
 	circuit, err := feed.NewCircuit("B", "east", clock.Now())
 	if err != nil {
 		t.Fatal(err)

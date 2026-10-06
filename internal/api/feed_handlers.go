@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/wyw14/cry-103/internal/landing"
@@ -14,7 +15,7 @@ func (s *Server) startIsolation(writer http.ResponseWriter, request *http.Reques
 		writeError(writer, http.StatusBadRequest, err)
 		return
 	}
-	permit, err := s.services.Permits.Request(stationID, input.CircuitID)
+	permit, err := s.services.Permits.Request(stationID, input.CircuitID, time.Duration(input.ValiditySeconds)*time.Second)
 	if err != nil {
 		writeError(writer, http.StatusConflict, err)
 		return
@@ -47,35 +48,4 @@ func (s *Server) recordReceipt(writer http.ResponseWriter, request *http.Request
 
 func (s *Server) listReceipts(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]any{"items": s.services.Receipts.ForStation(chi.URLParam(request, "id"))})
-}
-
-func (s *Server) evaluatePermit(writer http.ResponseWriter, request *http.Request) {
-	permit, err := s.services.Permits.Evaluate(chi.URLParam(request, "id"))
-	if err != nil {
-		writeError(writer, http.StatusConflict, err)
-		return
-	}
-	if err := s.services.Persist("permit-groundable", permit.ID, permit); err != nil {
-		writeError(writer, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, permit)
-}
-
-func (s *Server) getPermit(writer http.ResponseWriter, request *http.Request) {
-	permit, exists := s.services.Permits.Get(chi.URLParam(request, "id"))
-	if !exists {
-		writeJSON(writer, http.StatusNotFound, ErrorResponse{Error: "permit not found"})
-		return
-	}
-	writeJSON(writer, http.StatusOK, permit)
-}
-
-func (s *Server) groundPermit(writer http.ResponseWriter, request *http.Request) {
-	permit, err := s.services.Permits.Ground(chi.URLParam(request, "id"))
-	if err != nil {
-		writeError(writer, http.StatusConflict, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, permit)
 }

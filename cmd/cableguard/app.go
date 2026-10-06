@@ -72,7 +72,7 @@ func buildServices(cfg config) (*api.Services, error) {
 
 	receipts := landing.NewReceiptRegistry()
 	isolation := feed.NewIsolationService()
-	permits := repair.NewPermitService(isolation, receipts, ids, now)
+	permits := repair.NewPermitService(isolation, receipts, ids, now, repair.DefaultPermitTTL, repair.PermitReminderWindow)
 	for _, circuitID := range []string{"A", "B"} {
 		circuit, createErr := feed.NewCircuit(circuitID, "east", now())
 		if createErr != nil {

@@ -27,7 +27,13 @@ type SwitchoverRequest struct {
 }
 
 type IsolationRequest struct {
-	CircuitID string `json:"circuit_id"`
+	CircuitID       string `json:"circuit_id"`
+	ValiditySeconds int64  `json:"validity_seconds"`
+}
+
+type RenewPermitRequest struct {
+	Generation      uint64 `json:"generation"`
+	ValiditySeconds int64  `json:"validity_seconds"`
 }
 
 type ReceiptRequest struct {
