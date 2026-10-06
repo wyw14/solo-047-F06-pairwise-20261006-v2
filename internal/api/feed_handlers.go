@@ -23,7 +23,7 @@ func (s *Server) startIsolation(writer http.ResponseWriter, request *http.Reques
 		writeError(writer, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(writer, http.StatusAccepted, permit)
+	writeJSON(writer, http.StatusAccepted, s.services.Permits.View(permit))
 }
 
 func (s *Server) recordReceipt(writer http.ResponseWriter, request *http.Request) {
@@ -59,7 +59,7 @@ func (s *Server) evaluatePermit(writer http.ResponseWriter, request *http.Reques
 		writeError(writer, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, permit)
+	writeJSON(writer, http.StatusOK, s.services.Permits.View(permit))
 }
 
 func (s *Server) getPermit(writer http.ResponseWriter, request *http.Request) {
@@ -68,7 +68,7 @@ func (s *Server) getPermit(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusNotFound, ErrorResponse{Error: "permit not found"})
 		return
 	}
-	writeJSON(writer, http.StatusOK, permit)
+	writeJSON(writer, http.StatusOK, s.services.Permits.View(permit))
 }
 
 func (s *Server) groundPermit(writer http.ResponseWriter, request *http.Request) {
@@ -77,5 +77,53 @@ func (s *Server) groundPermit(writer http.ResponseWriter, request *http.Request)
 		writeError(writer, http.StatusConflict, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, permit)
+	if err := s.services.Persist("permit-grounded", permit.ID, permit); err != nil {
+		writeError(writer, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, s.services.Permits.View(permit))
+}
+
+func (s *Server) releasePermit(writer http.ResponseWriter, request *http.Request) {
+	permit, err := s.services.Permits.Release(chi.URLParam(request, "id"))
+	if err != nil {
+		writeError(writer, http.StatusConflict, err)
+		return
+	}
+	if err := s.services.Persist("permit-released", permit.ID, permit); err != nil {
+		writeError(writer, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, s.services.Permits.View(permit))
+}
+
+func (s *Server) renewPermit(writer http.ResponseWriter, request *http.Request) {
+	var input RenewRequest
+	if err := decodeJSON(request, &input); err != nil {
+		writeError(writer, http.StatusBadRequest, err)
+		return
+	}
+	permit, err := s.services.Permits.Renew(chi.URLParam(request, "id"), input.Generation)
+	if err != nil {
+		writeError(writer, http.StatusConflict, err)
+		return
+	}
+	if err := s.services.Persist("permit-renewed", permit.ID, permit); err != nil {
+		writeError(writer, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, s.services.Permits.View(permit))
+}
+
+func (s *Server) listPermitVersions(writer http.ResponseWriter, request *http.Request) {
+	versions, exists := s.services.Permits.Versions(chi.URLParam(request, "id"))
+	if !exists {
+		writeJSON(writer, http.StatusNotFound, ErrorResponse{Error: "permit not found"})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"items": versions})
+}
+
+func (s *Server) listExpiringPermits(writer http.ResponseWriter, _ *http.Request) {
+	writeJSON(writer, http.StatusOK, map[string]any{"items": s.services.Permits.Expiring()})
 }

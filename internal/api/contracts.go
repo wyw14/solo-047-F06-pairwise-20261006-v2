@@ -36,6 +36,10 @@ type ReceiptRequest struct {
 	Isolated    bool   `json:"isolated"`
 }
 
+type RenewRequest struct {
+	Generation uint64 `json:"generation"`
+}
+
 type AcceptanceRequest struct {
 	AcceptanceID string         `json:"acceptance_id"`
 	Direction    otdr.Direction `json:"direction"`

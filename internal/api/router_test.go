@@ -43,7 +43,7 @@ func testServer(t *testing.T) *Server {
 	drainer := route.NewDrainer(0)
 	activator := route.NewActivator(registry)
 	receipts := landing.NewReceiptRegistry()
-	permitService := repair.NewPermitService(feed.NewIsolationService(), receipts, ids, clock.Now)
+	permitService := repair.NewPermitService(feed.NewIsolationService(), receipts, ids, clock.Now, time.Hour, 10*time.Minute)
 	circuit, err := feed.NewCircuit("B", "east", clock.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -78,6 +78,66 @@ type fixedClock struct {
 
 func (c fixedClock) Now() time.Time {
 	return c.now
+}
+
+func TestPermitRenewalHTTPFlow(t *testing.T) {
+	server := testServer(t)
+
+	isolation, _ := json.Marshal(IsolationRequest{CircuitID: "B"})
+	created := httptest.NewRecorder()
+	server.Handler().ServeHTTP(created, httptest.NewRequest(http.MethodPost, "/api/landings/east/feed-isolations", bytes.NewReader(isolation)))
+	if created.Code != http.StatusAccepted {
+		t.Fatalf("isolation status=%d body=%s", created.Code, created.Body.String())
+	}
+	var permit repair.PermitView
+	if err := json.Unmarshal(created.Body.Bytes(), &permit); err != nil {
+		t.Fatal(err)
+	}
+	if permit.Generation != 1 || permit.Expiry != repair.ExpiryActive || permit.ExpiresAt.IsZero() {
+		t.Fatalf("unexpected permit view: %+v", permit)
+	}
+
+	stale, _ := json.Marshal(RenewRequest{Generation: 99})
+	conflict := httptest.NewRecorder()
+	server.Handler().ServeHTTP(conflict, httptest.NewRequest(http.MethodPost, "/api/permits/"+permit.ID+"/renew", bytes.NewReader(stale)))
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("stale renew status=%d body=%s", conflict.Code, conflict.Body.String())
+	}
+
+	renew, _ := json.Marshal(RenewRequest{Generation: permit.Generation})
+	renewed := httptest.NewRecorder()
+	server.Handler().ServeHTTP(renewed, httptest.NewRequest(http.MethodPost, "/api/permits/"+permit.ID+"/renew", bytes.NewReader(renew)))
+	if renewed.Code != http.StatusOK {
+		t.Fatalf("renew status=%d body=%s", renewed.Code, renewed.Body.String())
+	}
+	var current repair.PermitView
+	if err := json.Unmarshal(renewed.Body.Bytes(), &current); err != nil {
+		t.Fatal(err)
+	}
+	if current.Generation != 2 || current.OperationID != permit.OperationID || current.State != repair.PermitIsolating {
+		t.Fatalf("unexpected renewed permit: %+v", current)
+	}
+
+	versions := httptest.NewRecorder()
+	server.Handler().ServeHTTP(versions, httptest.NewRequest(http.MethodGet, "/api/permits/"+permit.ID+"/versions", nil))
+	if versions.Code != http.StatusOK {
+		t.Fatalf("versions status=%d body=%s", versions.Code, versions.Body.String())
+	}
+	var history struct {
+		Items []repair.PermitVersion `json:"items"`
+	}
+	if err := json.Unmarshal(versions.Body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Items) != 2 || history.Items[1].Reason != "renewed" || history.Items[1].Generation != 2 {
+		t.Fatalf("unexpected versions: %+v", history.Items)
+	}
+
+	expiring := httptest.NewRecorder()
+	server.Handler().ServeHTTP(expiring, httptest.NewRequest(http.MethodGet, "/api/permits/expiring", nil))
+	if expiring.Code != http.StatusOK {
+		t.Fatalf("expiring status=%d body=%s", expiring.Code, expiring.Body.String())
+	}
 }
 
 func TestHealthAndScanHTTPFlow(t *testing.T) {
